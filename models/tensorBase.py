@@ -71,12 +71,39 @@ class MLPRender_Fea(torch.nn.Module):
         self.mlp = torch.nn.Sequential(layer1, torch.nn.ReLU(inplace=True), layer2, torch.nn.ReLU(inplace=True), layer3)
         torch.nn.init.constant_(self.mlp[-1].bias, 0)
 
-    def forward(self, pts, viewdirs, features):
+    def forward(self, pts, viewdirs=None, features=None):
+
         indata = [features, viewdirs]
         if self.feape > 0:
             indata += [positional_encoding(features, self.feape)]
         if self.viewpe > 0:
             indata += [positional_encoding(viewdirs, self.viewpe)]
+        mlp_in = torch.cat(indata, dim=-1)
+        rgb = self.mlp(mlp_in)
+        rgb = torch.sigmoid(rgb)
+
+        return rgb
+
+class MLPRender_Fea_wodir(torch.nn.Module):
+    def __init__(self,inChanel, viewpe=6, feape=6, featureC=128):
+        super(MLPRender_Fea_wodir, self).__init__()
+
+        #not using viewdir
+        self.in_mlpC = 2*feape*inChanel  + inChanel
+        self.viewpe = viewpe
+        self.feape = feape
+        self.featureC = featureC
+        layer1 = torch.nn.Linear(self.in_mlpC, featureC)
+        layer2 = torch.nn.Linear(featureC, featureC)
+        layer3 = torch.nn.Linear(featureC,3)
+
+        self.mlp = torch.nn.Sequential(layer1, torch.nn.ReLU(inplace=True), layer2, torch.nn.ReLU(inplace=True), layer3)
+        torch.nn.init.constant_(self.mlp[-1].bias, 0)
+
+    def forward(self, pts, viewdirs=None, features=None):
+        indata = [features]
+        if self.feape > 0:
+            indata += [positional_encoding(features, self.feape)]
         mlp_in = torch.cat(indata, dim=-1)
         rgb = self.mlp(mlp_in)
         rgb = torch.sigmoid(rgb)
@@ -98,6 +125,7 @@ class MLPRender_PE(torch.nn.Module):
         torch.nn.init.constant_(self.mlp[-1].bias, 0)
 
     def forward(self, pts, viewdirs, features):
+
         indata = [features, viewdirs]
         if self.pospe > 0:
             indata += [positional_encoding(pts, self.pospe)]
@@ -105,8 +133,7 @@ class MLPRender_PE(torch.nn.Module):
             indata += [positional_encoding(viewdirs, self.viewpe)]
         mlp_in = torch.cat(indata, dim=-1)
         rgb = self.mlp(mlp_in)
-        rgb = torch.sigmoid(rgb)
-
+        rgb = torch.sigmoid(rgb)        
         return rgb
 
 class MLPRender(torch.nn.Module):
@@ -164,8 +191,13 @@ class TensorBase(torch.nn.Module):
 
         self.matMode = [[0,1], [0,2], [1,2]]
         self.vecMode =  [2, 1, 0]
+        
+        # self.matMode = [[1,2], [1,2], [1,2]]
+        # self.vecMode =  [0, 0, 0]
         self.comp_w = [1,1,1]
 
+        # threshold for spatial mapping
+        self.threshold = 8.0
 
         self.init_svd_volume(gridSize[0], device)
 
@@ -177,6 +209,8 @@ class TensorBase(torch.nn.Module):
             self.renderModule = MLPRender_PE(self.app_dim, view_pe, pos_pe, featureC).to(device)
         elif shadingMode == 'MLP_Fea':
             self.renderModule = MLPRender_Fea(self.app_dim, view_pe, fea_pe, featureC).to(device)
+        elif shadingMode == 'MLP_Fea_wodir':
+            self.renderModule = MLPRender_Fea_wodir(self.app_dim, view_pe, fea_pe, featureC).to(device)
         elif shadingMode == 'MLP':
             self.renderModule = MLPRender(self.app_dim, view_pe, featureC).to(device)
         elif shadingMode == 'SH':
@@ -217,6 +251,26 @@ class TensorBase(torch.nn.Module):
     
     def normalize_coord(self, xyz_sampled):
         return (xyz_sampled-self.aabb[0]) * self.invaabbSize - 1
+    
+    
+        
+    def ncartesian2nsphere(self,points):
+        sphere_points = torch.zeros_like(points)
+        # sphere_points[...,0] = torch.norm(points,p=2,dim=-1,keepdim =True)[...,0]
+        sphere_points[...,0] = torch.sqrt(points[...,0]**2+points[...,1]**2+points[...,2]**2)
+        sphere_points[...,1] = torch.acos(points[...,2]/(sphere_points[...,0]+1e-16))
+        sphere_points[...,2] = torch.atan(points[...,1]/(points[...,0]+1e-16))
+        # contract points
+        def contract(points):
+            #contract function for not normalized sphere points
+            return torch.where(points<=1.732*self.threshold,points,2.0*self.threshold-self.threshold**2/points)
+        sphere_points = contract(sphere_points)
+        aabb_sphere = torch.tensor([[0.0,0.0,-3.142/2.0],[1.732*2*self.threshold,3.142,3.142/2.0]]).to(points.device)
+        # aabb_sphere = torch.tensor([[0.0,0.0,-3.142/2.0],[1.732*100.0,3.142,3.142/2.0]]).to(points.device)
+        
+        invaabbSize_sphere = 2.0/(aabb_sphere[1]-aabb_sphere[0])
+        return (sphere_points-aabb_sphere[0])*invaabbSize_sphere-1
+        # return sphere_points
 
     def get_optparam_groups(self, lr_init_spatial = 0.02, lr_init_network = 0.001):
         pass
@@ -431,6 +485,29 @@ class TensorBase(torch.nn.Module):
 
         sigma = torch.zeros(xyz_sampled.shape[:-1], device=xyz_sampled.device)
         rgb = torch.zeros((*xyz_sampled.shape[:2], 3), device=xyz_sampled.device)
+        
+        #no need to normalize in xyz?
+        # xyz_sampled = self.normalize_coord(xyz_sampled)
+        
+        
+        # print("xyz_sampled shape",xyz_sampled.shape)   #[4096,443,3]
+        # xyz_max = torch.max(xyz_sampled[ray_valid].view(-1,3),dim=0)
+        # xyz_min = torch.min(xyz_sampled[ray_valid].view(-1,3),dim=0)
+        # print("before car2sphere xyz_max",xyz_max)
+        # print("before car2sphere xyz_min",xyz_min)
+        
+            
+        # sphere_flag = True
+        sphere_flag = False
+        if sphere_flag:
+            sphere_sampled = self.ncartesian2nsphere(xyz_sampled)
+            # print(sphere_sampled.shape)
+            
+            sphere_dirs = self.ncartesian2nsphere(viewdirs)
+            # viewdirs = sphere_dirs
+            # viewdirs = None
+
+            
 
         if ray_valid.any():
             xyz_sampled = self.normalize_coord(xyz_sampled)
@@ -445,8 +522,12 @@ class TensorBase(torch.nn.Module):
         app_mask = weight > self.rayMarch_weight_thres
 
         if app_mask.any():
+            if sphere_flag:
+                xyz_sampled = sphere_sampled
             app_features = self.compute_appfeature(xyz_sampled[app_mask])
             valid_rgbs = self.renderModule(xyz_sampled[app_mask], viewdirs[app_mask], app_features)
+            # valid_rgbs = self.renderModule(xyz_sampled[app_mask], None, app_features)
+            
             rgb[app_mask] = valid_rgbs
 
         acc_map = torch.sum(weight, -1)
@@ -463,4 +544,3 @@ class TensorBase(torch.nn.Module):
             depth_map = depth_map + (1. - acc_map) * rays_chunk[..., -1]
 
         return rgb_map, depth_map # rgb, sigma, alpha, weight, bg_weight
-

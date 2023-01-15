@@ -1,0 +1,40 @@
+dataset_name = own_data
+datadir = /data/yxh/paint1_intrin
+expname = 1217paint1_3comp_walpha_noviewdir
+#expname = regpose1210paint1_xyz_noalphaonly_noviewdir_norm
+basedir = /data/yxh/tensorf/log
+
+n_iters = 40000
+batch_size = 4096
+
+downsample_train = 2.0
+
+N_voxel_init = 2097156 # 128**3
+N_voxel_final = 27000000 # 300**3
+upsamp_list = [2000,3000,4000,5500,7000]
+update_AlphaMask_list = [2000,4000]
+#update_AlphaMask_list = [2000000000000000000,400000000000000000000000000]
+
+N_vis = 5
+vis_every = 5000
+
+render_test = 1
+
+
+n_lamb_sigma = [16,16,16]
+n_lamb_sh = [48,48,48]
+model_name = TensorVMSplit
+
+shadingMode = MLP_Fea
+fea2denseAct = softplus
+
+view_pe = 2
+fea_pe = 2
+
+view_pe = 2
+fea_pe = 2
+
+TV_weight_density = 0.1
+TV_weight_app = 0.01
+
+rm_weight_mask_thre = 1e-4

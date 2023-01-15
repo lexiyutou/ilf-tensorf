@@ -94,8 +94,11 @@ class TanksTempleDataset(Dataset):
         self.define_transforms()
 
         self.white_bg = True
-        self.near_far = [0.01,6.0]
-        self.scene_bbox = torch.from_numpy(np.loadtxt(f'{self.root_dir}/bbox.txt')).float()[:6].view(2,3)*1.2
+        # self.near_far = [0.01,6.0]
+        # self.scene_bbox = torch.from_numpy(np.loadtxt(f'{self.root_dir}/bbox.txt')).float()[:6].view(2,3)*1.2
+        self.near_far = [0.01,12.0]
+        self.scene_bbox = torch.from_numpy(np.loadtxt(f'{self.root_dir}/bbox.txt')).float()[:6].view(2,3)*8.0
+        
 
         self.blender2opencv = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
         self.read_meta()

@@ -145,12 +145,64 @@ class LLFFDataset(Dataset):
         self.center = torch.mean(self.scene_bbox, dim=0).float().view(1, 1, 3)
         self.invradius = 1.0 / (self.scene_bbox[1] - self.center).float().view(1, 1, 3)
 
-    def read_meta(self):
+    def _minify(self, factors=[], resolutions=[]):
+        needtoload = True
+        basedir = self.root_dir
+        for r in factors:
+            imgdir = os.path.join(basedir, 'images_{}'.format(r))
+            if not os.path.exists(imgdir):
+                needtoload = True
+        for r in resolutions:
+            imgdir = os.path.join(basedir, 'images_{}x{}'.format(r[1], r[0]))
+            if not os.path.exists(imgdir):
+                needtoload = True
+        if not needtoload:
+            print("minify data exist,not needtoload")
+            return
 
+        from subprocess import check_output
+        #imgdir = os.path.join(basedir)
+        imgdir = basedir
+        imgs = [os.path.join(imgdir, f) for f in sorted(os.listdir(imgdir))]
+        imgs = [f for f in imgs if any(
+            [f.endswith(ex) for ex in ['JPG', 'jpg', 'png', 'jpeg', 'PNG']])]
+        imgdir_orig = imgdir
+        wd = os.getcwd()
+        for r in factors + resolutions:
+            if isinstance(r, int):
+                name = 'images_{}'.format(r)
+                resizearg = '{}%'.format(100./r)
+            else:
+                name = 'images_{}x{}'.format(r[1], r[0])
+                resizearg = '{}x{}'.format(r[1], r[0])
+            imgdir = os.path.join(basedir, name)
+            if os.path.exists(imgdir):
+                continue
+
+            print("Minifying llff data to {}".format(imgdir))
+            os.makedirs(imgdir)
+            check_output('cp {}/*.png {}'.format(imgdir_orig, imgdir), shell=True)
+            ext = imgs[0].split('.')[-1]
+            args = ' '.join(['mogrify', '-resize', resizearg,
+                            '-format', 'png', '*.{}'.format(ext)])
+            print(args)
+            os.chdir(imgdir)
+            check_output(args, shell=True)
+            os.chdir(wd)
+            if ext != 'png':
+                check_output('rm {}/*.{}'.format(imgdir, ext), shell=True)
+                print('Removed duplicates')
+            print('Done')
+
+
+    def read_meta(self):
+        
 
         poses_bounds = np.load(os.path.join(self.root_dir, 'poses_bounds.npy'))  # (N_images, 17)
-        self.image_paths = sorted(glob.glob(os.path.join(self.root_dir, 'images_4/*')))
+        self._minify(factors=[2])
+        self.image_paths = sorted(glob.glob(os.path.join(self.root_dir, 'images_2/*')))
         # load full resolution image then resize
+        print(len(poses_bounds),len(self.image_paths))
         if self.split in ['train', 'test']:
             assert len(poses_bounds) == len(self.image_paths), \
                 'Mismatch between number of images and number of poses! Please rerun COLMAP!'
@@ -206,6 +258,7 @@ class LLFFDataset(Dataset):
         for i in img_list:
             image_path = self.image_paths[i]
             c2w = torch.FloatTensor(self.poses[i])
+            print(i,c2w)
 
             img = Image.open(image_path).convert('RGB')
             if self.downsample != 1.0:

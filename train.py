@@ -56,6 +56,8 @@ def render_test(args):
     test_dataset = dataset(args.datadir, split='test', downsample=args.downsample_train, is_stack=True)
     white_bg = test_dataset.white_bg
     ndc_ray = args.ndc_ray
+    
+    args.ckpt = args.basedir+'/'+args.expname+'/'+args.expname+'.th'
 
     if not os.path.exists(args.ckpt):
         print('the ckpt path does not exists!!')
@@ -82,6 +84,7 @@ def render_test(args):
 
     if args.render_path:
         c2ws = test_dataset.render_path
+        print("c2ws shape",c2ws.shape)
         os.makedirs(f'{logfolder}/{args.expname}/imgs_path_all', exist_ok=True)
         evaluation_path(test_dataset,tensorf, c2ws, renderer, f'{logfolder}/{args.expname}/imgs_path_all/',
                                 N_vis=-1, N_samples=-1, white_bg = white_bg, ndc_ray=ndc_ray,device=device)

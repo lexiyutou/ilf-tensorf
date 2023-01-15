@@ -100,11 +100,14 @@ def evaluation_path(test_dataset,tensorf, c2ws, renderer, savePath=None, N_vis=5
         pass
 
     near_far = test_dataset.near_far
+    print("c2ws shape",c2ws.shape)
     for idx, c2w in tqdm(enumerate(c2ws)):
 
         W, H = test_dataset.img_wh
+        print(c2w.shape)
 
         c2w = torch.FloatTensor(c2w)
+        # print(c2w.shape,test_dataset.directions.shape)
         rays_o, rays_d = get_rays(test_dataset.directions, c2w)  # both (h*w, 3)
         if ndc_ray:
             rays_o, rays_d = ndc_rays_blender(H, W, test_dataset.focal[0], 1.0, rays_o, rays_d)
